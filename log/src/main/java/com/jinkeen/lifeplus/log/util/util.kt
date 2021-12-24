@@ -9,7 +9,7 @@ import java.util.*
 
 private const val TAG = "LogUtils"
 
-private val sDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+private val sDateFormat = SimpleDateFormat("yyyyMMdd", Locale.CHINA)
 
 /**
  * 获取当前日期（`yyyy-MM-dd`）的13位时间戳表示形式

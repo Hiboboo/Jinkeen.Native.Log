@@ -5,13 +5,9 @@ import android.text.TextUtils
 import android.util.Log
 import com.jinkeen.lifeplus.log.listener.OnLogProtocolStatusListener
 import com.jinkeen.lifeplus.log.util.SingletonFactory
-import com.jinkeen.lifeplus.log.util.getCurrentDateTimemillis
-import com.jinkeen.lifeplus.log.util.isCanWriteSDCard
-import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 本地日志操作控制器中心
@@ -25,9 +21,6 @@ class LogControlCenter private constructor(private val config: LogConfig) {
     companion object {
 
         private const val TAG = "LogControlCenter"
-
-        /** 一分钟的毫秒数 */
-        private const val MINUTE = 60 * 1000L
     }
 
     private val executors = Executors.newSingleThreadExecutor()
@@ -54,19 +47,18 @@ class LogControlCenter private constructor(private val config: LogConfig) {
                 threadName = Thread.currentThread().name
             }
         })
-        Log.d(TAG, "已将新日志添加到队列")
         synchronized(workLock) { isContinueWorking = true }
     }
 
     fun flush() {
         Log.d(TAG, "接收到一条强制写入事件")
         logCacheQueue.add(LogAction(Action.FLUSH))
-        Log.d(TAG, "已将强制写入事件添加到队列")
         synchronized(workLock) { isContinueWorking = true }
     }
 
     private val isQuit = AtomicBoolean(false)
     private val protocol = LogProtocol()
+    private val worker = FileWorker.Instance.get(config)
 
     private fun execute() {
         while (!isQuit.get()) {
@@ -89,8 +81,8 @@ class LogControlCenter private constructor(private val config: LogConfig) {
                         if (!protocol.isInitialized()) return@synchronized
                         Log.d(TAG, "准备进行事件：${action.action}")
                         when (action.action) {
-                            Action.WRITE -> write(action.writeAction)
-                            Action.FLUSH -> protocol.flush()
+                            Action.WRITE -> worker.write(protocol, action.writeAction)
+                            Action.FLUSH -> worker.flush(protocol)
                             Action.SEND -> {}
                         }
                     } ?: run { isContinueWorking = false }
@@ -101,62 +93,20 @@ class LogControlCenter private constructor(private val config: LogConfig) {
         }
     }
 
-    private var beforeDay = 0L
-
     /**
-     * 之前记录的时间距离当前系统时间，是否在24小时之内
+     * 结束本地的日志写入任务，将不再接收新的日志信息
      *
-     * @return `true`表示在24小时之内，否则为`false`
+     * @param isFlush 是否在结束前将缓存队列中的日志强制写入到日志文件
      */
-    private fun isDay(): Boolean {
-        val currentTime = System.currentTimeMillis()
-        return beforeDay < currentTime && beforeDay + LogConfig.DAY > currentTime
-    }
-
-    private val lastTime = AtomicLong(0)
-    private val isCanWrite = AtomicBoolean(true)
-
-    private fun write(w: WriteAction) {
-        // 如果记录已超过一天
-        if (!isDay()) {
-            val currentDayTimemillis = getCurrentDateTimemillis()
-            this.deleteExpiredFile(currentDayTimemillis - config.mDay)
-            beforeDay = currentDayTimemillis
-            protocol.open(beforeDay.toString())
-        }
-
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastTime.get() > MINUTE)
-            isCanWrite.set(isCanWriteSDCard(config.logDirPath, config.mMinSDCard))
-        lastTime.set(System.currentTimeMillis())
-        if (!isCanWrite.get()) return // 如果不再允许写入
-
-        protocol.write(w.flag, w.log, w.localTime, w.threadName, w.threadId, w.isMainThread)
-    }
-
-    /**
-     * 删除过期的文件
-     *
-     * @param delTime 过期的最早时间
-     */
-    private fun deleteExpiredFile(delTime: Long) {
-        File(config.logDirPath).apply {
-            if (isDirectory) listFiles()?.forEach {
-                if (it.name.matches(Regex("\\d{13}"))) {
-                    if (it.name.toLong() <= delTime) it.delete()
-                }
-            }
-        }
-    }
-
-    fun quit() {
+    fun quit(isFlush: Boolean) {
+        if (isFlush) protocol.flush()
         isQuit.set(true)
         if (!executors.isShutdown) executors.shutdown()
     }
 
     private var listener: OnLogProtocolStatusListener? = null
 
-    private fun setOnLogProtocolStatusListener(listener: OnLogProtocolStatusListener) {
+    fun setOnLogProtocolStatusListener(listener: OnLogProtocolStatusListener?) {
         this.listener = listener
     }
 }

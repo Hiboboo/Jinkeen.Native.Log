@@ -8,7 +8,7 @@ package com.jinkeen.lifeplus.log.nativ
  * @property mEncryptKey16 128位aes加密Key
  * @property mEncryptIv16 128位aes加密IV
  * @property mMaxFile 一个日志文件的大小，默认=[DEFAULT_FILE_SIZE]
- * @property mDay 保留日志的天数，默认=[DEFAULT_DAY]
+ * @property saveDays 保留日志的天数，默认=[DEFAULT_DAY]
  * @property mMinSDCard 设备SD卡的容量若小于该值则不写入日志文件，默认=[DEFAULT_MIN_SDCARD_SIZE]
  * @property isDebug 当前是否为`Debug`环境
  */
@@ -18,7 +18,7 @@ open class LogConfig(
     val mEncryptKey16: ByteArray,
     val mEncryptIv16: ByteArray,
     val mMaxFile: Long = DEFAULT_FILE_SIZE,
-    val mDay: Long = DEFAULT_DAY,
+    val saveDays: Long = DEFAULT_DAY,
     val mMinSDCard: Long = DEFAULT_MIN_SDCARD_SIZE,
     val isDebug: Boolean = false
 ) {

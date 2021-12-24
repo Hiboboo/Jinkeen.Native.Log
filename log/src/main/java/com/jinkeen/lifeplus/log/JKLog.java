@@ -1,5 +1,6 @@
 package com.jinkeen.lifeplus.log;
 
+import com.jinkeen.lifeplus.log.listener.OnLogProtocolStatusListener;
 import com.jinkeen.lifeplus.log.nativ.LogConfig;
 import com.jinkeen.lifeplus.log.nativ.LogControlCenter;
 
@@ -9,9 +10,11 @@ import java.io.StringWriter;
 
 /**
  * 日志记录与上传的操作类。
- * <p/>
- * 该类中所有的方法均已在异步线程内进行工作，因此不会对<code>UI</code>线程有任何影响，且保证对所有线程的安全控制。
- * 另外，调用者无需考虑在不同线程中调用会丢失日志的问题，各个方法内已实现线程安全的同步队列。
+ * <ul>
+ *     <li>该类中所有的方法均已在异步线程内进行工作，因此不会对<code>UI</code>线程有任何影响，且保证对所有线程的安全控制。</li>
+ *     <li>从第一条日志记录开始，往后每隔24小时会自动创建一个新的日志永久记录文件，且在创建新文件之时，程序会自动将旧缓存刷入对应的记录文件中，且保证日志条目不会丢失。</li>
+ *     <li>磁盘中的日志永久记录文件有效保存时间取决于<code>{@link LogConfig#getSaveDays()}</code>，过期后文件将自动被移除</li>
+ * </ul>
  */
 public final class JKLog {
 
@@ -67,6 +70,11 @@ public final class JKLog {
     public static void f() {
         if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
         sLogControlCenter.flush();
+    }
+
+    public static void setOnLogProtocolStatusListener(OnLogProtocolStatusListener listener) {
+        if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
+        sLogControlCenter.setOnLogProtocolStatusListener(listener);
     }
 
     /**
@@ -134,9 +142,11 @@ public final class JKLog {
 
     /**
      * 停止在本地的日志记录工作。将现有队列中的日志写入完成，并不再接收新的日志写入。
+     *
+     * @param isFlush 是否在停止前将缓存队列中的日志强制写入到日志文件中
      */
-    public static void quit() {
+    public static void quit(boolean isFlush) {
         if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
-        sLogControlCenter.quit();
+        sLogControlCenter.quit(isFlush);
     }
 }
