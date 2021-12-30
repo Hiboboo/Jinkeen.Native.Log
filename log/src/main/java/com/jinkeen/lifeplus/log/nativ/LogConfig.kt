@@ -1,5 +1,12 @@
 package com.jinkeen.lifeplus.log.nativ
 
+import android.os.Parcelable
+import com.jinkeen.lifeplus.log.BuildConfig
+import com.jinkeen.lifeplus.log.nativ.LogConfig.Companion.DEFAULT_DAY
+import com.jinkeen.lifeplus.log.nativ.LogConfig.Companion.DEFAULT_FILE_SIZE
+import com.jinkeen.lifeplus.log.nativ.LogConfig.Companion.DEFAULT_MIN_SDCARD_SIZE
+import kotlinx.parcelize.Parcelize
+
 /**
  * 日志写入前的全局配置
  *
@@ -12,7 +19,8 @@ package com.jinkeen.lifeplus.log.nativ
  * @property mMinSDCard 设备SD卡的容量若小于该值则不写入日志文件，默认=[DEFAULT_MIN_SDCARD_SIZE]
  * @property isDebug 当前是否为`Debug`环境
  */
-open class LogConfig(
+@Parcelize
+data class LogConfig(
     val cachePath: String,
     val logDirPath: String,
     val mEncryptKey16: ByteArray,
@@ -21,9 +29,11 @@ open class LogConfig(
     val saveDays: Long = DEFAULT_DAY,
     val mMinSDCard: Long = DEFAULT_MIN_SDCARD_SIZE,
     val isDebug: Boolean = false
-) {
+) : Parcelable {
 
     companion object {
+
+        const val EXTRA_CONFIG = "${BuildConfig.LIBRARY_PACKAGE_NAME}.config"
 
         const val DAY = 24 * 60 * 60 * 1000L // 一天的总毫秒数
         const val M = 1024 * 1024L // 1M的总字节数

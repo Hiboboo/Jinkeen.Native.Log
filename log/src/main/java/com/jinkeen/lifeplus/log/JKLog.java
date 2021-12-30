@@ -1,12 +1,22 @@
 package com.jinkeen.lifeplus.log;
 
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.os.IBinder;
+
 import com.jinkeen.lifeplus.log.listener.OnLogProtocolStatusListener;
 import com.jinkeen.lifeplus.log.nativ.LogConfig;
-import com.jinkeen.lifeplus.log.nativ.LogControlCenter;
+import com.jinkeen.lifeplus.log.nativ.LogControlCenterService;
 
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
+import java.util.Objects;
 
 /**
  * 日志记录与上传的操作类。
@@ -18,10 +28,29 @@ import java.io.StringWriter;
  */
 public final class JKLog {
 
-    private static LogControlCenter sLogControlCenter;
+    private static LogControlCenterService sLogControlCenter;
+    private static ServiceConnection connection;
 
-    public static void init(LogConfig config) {
-        sLogControlCenter = LogControlCenter.Instance.INSTANCE.get(config);
+    /**
+     * （必须）初始化，否则后续所有方法就无法执行。
+     *
+     * @param context 当前运行时上下文
+     * @param config  日志基本配置信息
+     */
+    public static void init(Context context, LogConfig config) {
+        final Intent intent = new Intent(context, LogControlCenterService.class);
+        intent.putExtra(LogConfig.EXTRA_CONFIG, config);
+        connection = new ServiceConnection() {
+            @Override
+            public void onServiceConnected(ComponentName name, IBinder service) {
+                if (service instanceof LogControlCenterService.ControlCenterBinder)
+                    sLogControlCenter = ((LogControlCenterService.ControlCenterBinder) service).getService();
+            }
+
+            @Override
+            public void onServiceDisconnected(ComponentName name) {}
+        };
+        context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
     }
 
     /**
@@ -72,42 +101,69 @@ public final class JKLog {
         sLogControlCenter.flush();
     }
 
+    /**
+     * 停止在本地的日志记录工作。将现有队列中的日志写入完成，并不再接收新的日志写入。
+     *
+     * @param context 当前运行时上下文
+     * @param isFlush 是否在停止前将缓存队列中的日志强制写入到日志文件中
+     */
+    public static void quit(Context context, boolean isFlush) {
+        if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
+        sLogControlCenter.quit(isFlush);
+        context.unbindService(connection);
+    }
+
     public static void setOnLogProtocolStatusListener(OnLogProtocolStatusListener listener) {
         if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
         sLogControlCenter.setOnLogProtocolStatusListener(listener);
     }
 
+    private static final SimpleDateFormat mSimpleFormat = new SimpleDateFormat("yyyyMMddHHmm", Locale.CHINA);
+
     /**
-     * 立即上传指定类型的日志信息到服务端，一种‘粗暴’的范围筛选。
-     * <br/>
-     * 若没有指定日志类型，则默认上传筛选范围内所有的日志信息，<i>这会占用大量的网络流量</i>。
+     * 立即上传日志信息到服务端
      *
-     * @param type       指定要上传的日志类型，多个类型可使用英文<code>[,]</code>分割
      * @param recentDays 最近几天的日志？即：以调用时的时间为基准，往前数<code>recentDays</code>天。若超过本地已记录的最早日志时间，将自动上传本地已记录的所有日志。
      */
-    public static void fastUp(int type, int recentDays) {}
+    public static long fastUp(int recentDays) {
+        if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
+        final long currentTime = System.currentTimeMillis();
+        return sLogControlCenter.up(new int[]{}, currentTime - recentDays * LogConfig.DAY, currentTime);
+    }
 
     /**
      * 立即上传指定的日志信息到服务端，将按照具体的时间范围进行精细化的筛选。
      * <br/>
-     * 若没有指定日志类型，则默认上传筛选范围内所有的日志信息，<i>这可能会占用大量的网络流量</i>。
+     * 若没有指定日志类型，则默认上传筛选范围内所有的日志信息，<i>这可能会占用较大量的网络流量</i>。
      *
-     * @param type      指定要上传的日志类型，多个类型可使用英文<code>[,]</code>分割
-     * @param beginTime 开始的具体时间，格式为：<code><b><i>yyyyMMddHHmmss</i></b></code>，若超过本地已记录的最早日志时间，将自动按本地记录的最早时间来算。
+     * @param types     指定要上传的日志类型
+     * @param beginTime 开始的具体时间，格式为：<code><b><i>yyyyMMddHHmm</i></b></code>，若超过本地已记录的最早日志时间，将自动按本地记录的最早时间来算。
      * @param endTime   结束的具体时间，格式同<code>beginTime</code>，若超过本地记录的最晚日志时间，将自动按照本地记录的最晚日志时间来算。
      */
-    public static void fastUp(int type, String beginTime, String endTime) {}
+    public static long fastUp(int[] types, String beginTime, String endTime) {
+        if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
+        try {
+            final long b = Objects.requireNonNull(mSimpleFormat.parse(beginTime)).getTime();
+            final long e = Objects.requireNonNull(mSimpleFormat.parse(endTime)).getTime();
+            return sLogControlCenter.up(types, b, e);
+        } catch (ParseException | NullPointerException e) {
+            e.printStackTrace();
+            throw new IllegalArgumentException(e);
+        }
+    }
 
     /**
-     * 周期性（重复）的上传指定类型日志到服务端，除<code>{@link Cycle#FIXED_TIME}</code>外，其他周期性均以该方法第一次被执行时为时间基准。
+     * 周期性（重复）的上传日志到服务端，除<code>{@link Cycle#FIXED_TIME}</code>外，其他周期性均以该方法第一次被执行时为时间基准。
      * <br/>
      * 周期性任务不接受多次执行，若多次调用，将始终按第一次为准。
      *
-     * @param type   指定要上传的日志类型，多个类型可使用英文<code>[,]</code>分割
      * @param cycle  周期性的类型，取<code>{@link Cycle}</code>中定义的常量之一。
      * @param cValue 指定周期的具体数值，当<code>cycle=FIXED_TIME</code>时，时间默认采用24小时制。
      */
-    public static void regularUp(int type, Cycle cycle, int cValue) {}
+    public static long regularUp(Cycle cycle, int cValue) {
+        if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
+        return 0L;
+    }
 
     /** 周期性的常量标识 */
     public enum Cycle {
@@ -126,27 +182,14 @@ public final class JKLog {
     }
 
     /**
-     * 停止正在进行中的周期性上传任务。即停止再向日志队列添加新的日志条目，直到队列中已有的数据全部上传完毕后，任务才会被真正停止。
+     * 停止指定的正在进行中的上传任务，若任务未完成，即刻停止后续的动作。
+     *
+     * @param taskId 由上传任务开始时生成的唯一任务ID
      */
-    public static void stopRegularUp() {}
-
-    /**
-     * 立即停止正在进行中的周期性上传任务。即丢弃日志队列中已有的所有日志条目，并迅速中断所有任务。
-     */
-    public static void fastStopRegularUp() {}
+    public static void stopUp(long taskId) {}
 
     /**
      * 立即停止所有正在进行中的上传任务，包括即时性的和周期性的。
      */
-    public static void stopAll() {}
-
-    /**
-     * 停止在本地的日志记录工作。将现有队列中的日志写入完成，并不再接收新的日志写入。
-     *
-     * @param isFlush 是否在停止前将缓存队列中的日志强制写入到日志文件中
-     */
-    public static void quit(boolean isFlush) {
-        if (null == sLogControlCenter) throw new NullPointerException("请先初始化JKLog");
-        sLogControlCenter.quit(isFlush);
-    }
+    public static void stopAllUp() {}
 }

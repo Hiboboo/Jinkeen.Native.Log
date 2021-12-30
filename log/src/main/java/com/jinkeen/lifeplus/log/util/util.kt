@@ -19,6 +19,14 @@ private val sDateFormat = SimpleDateFormat("yyyyMMdd", Locale.CHINA)
 fun getCurrentDateTimemillis(): Long = sDateFormat.parse(sDateFormat.format(Date()))?.time ?: 0L
 
 /**
+ * 将原始的13位原始时间戳转义成只有年月日的时间戳，其结果只表示当前0点0分0秒的时间戳
+ *
+ * @param oTime 原始13位完整时间戳
+ * @return 返回转义后的时间戳。
+ */
+fun escapeTimemillis(oTime: Long): Long = sDateFormat.parse(sDateFormat.format(oTime))?.time ?: oTime
+
+/**
  * 检查`SDCard`中目标文件的现有总容量是否还允许被写入目标容量的数据
  *
  * @param path 要被检查的目标文件路径

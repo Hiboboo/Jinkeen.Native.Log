@@ -56,4 +56,26 @@ internal class FileWorker private constructor(private val config: LogConfig) {
     internal fun flush(protocol: LogProtocol) {
         protocol.flush()
     }
+
+    /**
+     * 筛选出符合指定时间条件的所有文件。
+     * --
+     * 所谓符合条件，即(file)：begin <= file && file <= end
+     *
+     * @param begin 开始时间
+     * @param end 结束时间
+     * @return 返回符合条件的所有文件
+     */
+    internal fun filterFiles(begin: Long, end: Long): List<File> {
+        val logFiles = arrayListOf<File>()
+        File(config.logDirPath).apply {
+            if (isDirectory) listFiles()?.forEach {
+                if (it.name.matches(Regex("\\d{13}"))) {
+                    if (it.name.toLong() in begin..end) logFiles.add(it)
+                }
+            }
+        }
+        logFiles.sortBy { f -> f.name.toLong() }
+        return logFiles
+    }
 }
